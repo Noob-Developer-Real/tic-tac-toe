@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tic Tac Toe | Lobby</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root {
+  --neon-blue: #00e5ff;
+  --neon-pink: #ff4fd8;
+  --bg-dark: #050510;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh; /* mobile safe viewport */
+  background: radial-gradient(circle at top, #0b1c2d, #050510);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  padding: 16px; /* prevents edge clipping on mobile */
+}
+
+.card {
+  background: rgba(10, 15, 30, 0.9);
+  backdrop-filter: blur(20px);
+  border-radius: 22px;
+  padding: 36px;
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  box-shadow:
+    0 0 40px rgba(0, 229, 255, 0.25),
+    inset 0 0 20px rgba(255,255,255,0.05);
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 32px;
+  color: var(--neon-blue);
+  text-shadow: 0 0 14px var(--neon-blue);
+}
+
+.subtitle {
+  opacity: 0.75;
+  margin-bottom: 24px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+input, select, button {
+  width: 100%;
+  padding: 14px;
+  margin-top: 14px;
+  border-radius: 14px;
+  border: none;
+  font-size: 15px;
+}
+
+input, select {
+  background: #0d1328;
+  color: #fff;
+  outline: none;
+}
+
+input::placeholder {
+  opacity: 0.6;
+}
+
+button {
+  background: linear-gradient(135deg, var(--neon-blue), var(--neon-pink));
+  color: #000;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 0 22px rgba(0,229,255,0.55);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+.divider {
+  margin: 22px 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255,255,255,0.2),
+    transparent
+  );
+}
+
+/* 📱 Mobile tuning */
+@media (max-width: 420px) {
+  .card {
+    padding: 28px;
+    border-radius: 18px;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+  }
+
+  input, select, button {
+    font-size: 14px;
+    padding: 13px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h1>Tic Tac Toe</h1>
+
+  <div class="subtitle">
+    Create a room or join instantly using a shared link
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <!-- Username -->
+    <input
+      type="text"
+      name="username"
+      placeholder="Your display name"
+      required
+      autofocus
+    >
+
+    <div class="divider"></div>
+
+    <!-- Action -->
+    <select name="option" id="option">
+      <option value="1" {% if request.GET.room %}selected{% endif %}>
+        Join an existing room
+      </option>
+      <option value="2">
+        Create a new room
+      </option>
+    </select>
+
+    <!-- Room Code -->
+    <input
+      type="text"
+      name="room_code"
+      id="roomCode"
+      placeholder="Enter room code"
+      value="{{ request.GET.room }}"
+    >
+
+    <button type="submit">
+      Enter Game
+    </button>
+  </form>
+</div>
+
+<script>
+const optionSelect = document.getElementById("option");
+const roomInput = document.getElementById("roomCode");
+
+function syncRoomField() {
+  if (optionSelect.value === "2") {
+    roomInput.placeholder = "Choose a room code (shareable)";
+    roomInput.required = true;
+  } else {
+    roomInput.placeholder = "Enter room code";
+    roomInput.required = true;
+  }
+}
+
+optionSelect.addEventListener("change", syncRoomField);
+syncRoomField();
+</script>
+
+</body>
+</html>

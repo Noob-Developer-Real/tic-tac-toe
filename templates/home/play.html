@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tic Tac Toe | Room {{ room_code }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root {
+  --neon-blue: #00e5ff;
+  --neon-pink: #ff4fd8;
+  --bg: #050510;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #0b1c2d, #050510);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  padding: 16px;
+}
+
+.game-card {
+  background: rgba(10, 15, 30, 0.92);
+  backdrop-filter: blur(18px);
+  border-radius: 22px;
+  padding: 24px;
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  box-shadow:
+    0 0 35px rgba(0,229,255,0.35),
+    inset 0 0 20px rgba(255,255,255,0.04);
+}
+
+h1 {
+  margin: 0 0 6px;
+  color: var(--neon-blue);
+  text-shadow: 0 0 12px var(--neon-blue);
+}
+
+.room {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-bottom: 8px;
+}
+
+.scoreboard {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 0;
+  font-weight: 700;
+}
+
+.banner {
+  margin: 12px 0;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.share-box {
+  margin: 14px 0;
+}
+
+.share-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 14px;
+  border: none;
+  font-weight: 800;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--neon-blue), var(--neon-pink));
+}
+
+.share-btn:active {
+  transform: scale(0.97);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.cell {
+  aspect-ratio: 1 / 1;
+  background: #0d1328;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 42px;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+  box-shadow: inset 0 0 12px rgba(0,0,0,.6);
+}
+
+.cell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 18px rgba(0,229,255,.6);
+}
+
+.cell.disabled {
+  pointer-events: none;
+  opacity: .35;
+}
+
+.cell.x {
+  color: var(--neon-blue);
+  text-shadow: 0 0 18px var(--neon-blue);
+}
+
+.cell.o {
+  color: var(--neon-pink);
+  text-shadow: 0 0 18px var(--neon-pink);
+}
+
+.cell.win {
+  animation: glow 1s infinite alternate;
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 10px currentColor; }
+  to   { box-shadow: 0 0 35px currentColor; }
+}
+
+.reset-btn {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 14px;
+  border: none;
+  width: 100%;
+  font-weight: 800;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--neon-blue), var(--neon-pink));
+}
+
+/* 📱 Mobile optimization */
+@media (max-width: 420px) {
+  .game-card {
+    padding: 20px;
+  }
+  .cell {
+    font-size: 36px;
+  }
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="game-card">
+  <h1>Tic Tac Toe</h1>
+  <div class="room">Room: {{ room_code }}</div>
+
+  <div class="scoreboard">
+    <div>X: <span id="scoreX">0</span></div>
+    <div>O: <span id="scoreO">0</span></div>
+  </div>
+
+  <div class="banner" id="status">Waiting for opponent…</div>
+
+  <!-- Share box (ONLY before second player joins) -->
+  <div class="share-box" id="shareBox">
+    <button class="share-btn" id="copyLink">
+      Copy Invite Link
+    </button>
+  </div>
+
+  <div class="board" id="board">
+    {% for i in "012345678" %}
+      <div class="cell disabled" data-index="{{ forloop.counter0 }}"></div>
+    {% endfor %}
+  </div>
+
+  <button class="reset-btn" id="reset">Next Round</button>
+
+</div>
+
+<script>
+const room = "{{ room_code }}";
+const username = "{{ username }}";
+
+const ws = new WebSocket(
+  (location.protocol === "https:" ? "wss://" : "ws://") +
+  location.host + "/ws/game/" + room + "/?username=" + username
+);
+
+const cells = document.querySelectorAll(".cell");
+const status = document.getElementById("status");
+const shareBox = document.getElementById("shareBox");
+const copyBtn = document.getElementById("copyLink");
+
+let mySymbol = null;
+const inviteLink = location.origin + "/game/" + room;
+
+// 📋 Copy link (mobile + desktop)
+copyBtn.onclick = async () => {
+  await navigator.clipboard.writeText(inviteLink);
+  copyBtn.textContent = "Link Copied!";
+  setTimeout(() => copyBtn.textContent = "Copy Invite Link", 1500);
+};
+
+ws.onmessage = e => {
+  const data = JSON.parse(e.data);
+
+  if (data.type === "init") mySymbol = data.symbol;
+  if (data.type !== "state") return;
+
+  const s = data.state;
+
+  // Hide share UI once game starts
+  shareBox.style.display = s.started ? "none" : "block";
+
+  // Board render
+  s.board.forEach((v,i) => {
+    const c = cells[i];
+    c.textContent = v || "";
+    c.className = "cell";
+    if (v) c.classList.add(v.toLowerCase());
+    c.classList.toggle(
+      "disabled",
+      v || s.turn !== mySymbol || s.winner || !s.started
+    );
+  });
+
+  // Winning glow
+  s.winning_cells.forEach(i => cells[i].classList.add("win"));
+
+  // Status banner
+  if (!s.started)
+    status.textContent = "Waiting for opponent…";
+  else if (s.winner)
+    status.textContent =
+      s.winner === "DRAW"
+        ? "Draw!"
+        : `${s.players[s.winner]} Wins`;
+  else
+    status.textContent =
+      `${s.players[s.turn]}'s Turn (${s.turn})`;
+
+  // Scoreboard
+  document.getElementById("scoreX").textContent = s.scores.X;
+  document.getElementById("scoreO").textContent = s.scores.O;
+};
+
+// Moves
+cells.forEach(c =>
+  c.onclick = () =>
+    ws.send(JSON.stringify({ move: Number(c.dataset.index) }))
+);
+
+// Reset round
+document.getElementById("reset").onclick = () =>
+  ws.send(JSON.stringify({ action: "reset" }));
+</script>
+
+
+</body>
+</html>
