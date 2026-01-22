@@ -3,7 +3,7 @@ from asgiref.sync import async_to_sync
 import json
 import time
 import re
-import random  
+import random
 
 GAME_STATE = {}
 ROOM_TTL = 60
@@ -28,6 +28,20 @@ def check_winner(board):
     return None
 
 
+def reshuffle_players(state):
+    """
+    Randomly reassign X and O after each round
+    """
+    players = list(state["players"].values())
+    random.shuffle(players)
+
+    state["players"] = {
+        "X": players[0],
+        "O": players[1],
+    }
+    state["turn"] = random.choice(["X", "O"])
+
+
 class Gameroom(WebsocketConsumer):
 
     def connect(self):
@@ -48,11 +62,11 @@ class Gameroom(WebsocketConsumer):
             self.close()
             return
 
-        # 🔹 INITIAL GAME STATE
         state = GAME_STATE.setdefault(self.room_code, {
-            "players": {},
+            "players": {},              # {"X": username, "O": username}
+            "connections": {},          # channel_name -> username
             "board": [None] * 9,
-            "turn": None,              
+            "turn": None,
             "winner": None,
             "started": False,
             "finished_at": None,
@@ -60,22 +74,15 @@ class Gameroom(WebsocketConsumer):
             "winning_cells": [],
         })
 
-        # 🔹 PLAYER ASSIGNMENT
-        if "X" not in state["players"]:
-            self.symbol = "X"
-            state["players"]["X"] = self.username
-
-        elif "O" not in state["players"]:
-            self.symbol = "O"
-            state["players"]["O"] = self.username
-
-            # ✅ GAME STARTS HERE
-            state["started"] = True
-            state["turn"] = random.choice(["X", "O"])  # 🎲 RANDOM FIRST TURN
-
-        else:
+        if len(state["connections"]) >= 2:
             self.close()
             return
+
+        state["connections"][self.channel_name] = self.username
+
+        if len(state["connections"]) == 2:
+            reshuffle_players(state)
+            state["started"] = True
 
         async_to_sync(self.channel_layer.group_add)(
             self.room_group,
@@ -84,10 +91,9 @@ class Gameroom(WebsocketConsumer):
 
         self.accept()
 
-        # 🔹 SEND PLAYER SYMBOL
         self.send(json.dumps({
             "type": "init",
-            "symbol": self.symbol,
+            "username": self.username,
         }))
 
         self.broadcast_state()
@@ -105,9 +111,9 @@ class Gameroom(WebsocketConsumer):
             Game.objects.filter(room_code=self.room_code).delete()
             return
 
-        state["players"].pop(self.symbol, None)
+        state["connections"].pop(self.channel_name, None)
 
-        if not state["players"]:
+        if not state["connections"]:
             GAME_STATE.pop(self.room_code, None)
             Game.objects.filter(room_code=self.room_code).delete()
 
@@ -119,16 +125,17 @@ class Gameroom(WebsocketConsumer):
         if not state:
             return
 
-        # 🔄 RESET GAME
+        # 🔄 RESET ROUND
         if data.get("action") == "reset":
             if state["winner"] is None:
                 return
 
+            reshuffle_players(state)
+
             state.update({
                 "board": [None] * 9,
                 "winner": None,
-                "turn": random.choice(["X", "O"]),  # 🎲 RANDOM AGAIN
-                "started": len(state["players"]) == 2,
+                "started": True,
                 "winning_cells": [],
                 "finished_at": None,
             })
@@ -136,20 +143,27 @@ class Gameroom(WebsocketConsumer):
             self.broadcast_state()
             return
 
-        # 🎯 PLAYER MOVE
         index = data.get("move")
         if index is None or not (0 <= index <= 8):
             return
 
         if not state["started"] or state["winner"]:
             return
-        if self.symbol != state["turn"]:
-            return
         if state["board"][index] is not None:
             return
 
-        state["board"][index] = self.symbol
-        state["turn"] = "O" if self.symbol == "X" else "X"
+        # 🔍 DETERMINE PLAYER SYMBOL (DYNAMIC)
+        player_symbol = None
+        for symbol, username in state["players"].items():
+            if username == self.username:
+                player_symbol = symbol
+                break
+
+        if player_symbol != state["turn"]:
+            return
+
+        state["board"][index] = player_symbol
+        state["turn"] = "O" if player_symbol == "X" else "X"
 
         winner = check_winner(state["board"])
         if winner:
