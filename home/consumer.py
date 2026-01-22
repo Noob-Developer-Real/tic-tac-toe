@@ -16,9 +16,9 @@ def safe_group_name(room_code: str) -> str:
 
 def check_winner(board):
     wins = [
-        (0,1,2),(3,4,5),(6,7,8),
-        (0,3,6),(1,4,7),(2,5,8),
-        (0,4,8),(2,4,6),
+        (0, 1, 2), (3, 4, 5), (6, 7, 8),
+        (0, 3, 6), (1, 4, 7), (2, 5, 8),
+        (0, 4, 8), (2, 4, 6),
     ]
     for a, b, c in wins:
         if board[a] and board[a] == board[b] == board[c]:
@@ -30,14 +30,18 @@ def check_winner(board):
 
 def reshuffle_players(state):
     """
-    Randomly reassign X and O after each round
+    Randomly assign X and O.
+    Runs ONLY when exactly two connections exist.
     """
-    players = list(state["players"].values())
-    random.shuffle(players)
+    if len(state["connections"]) != 2:
+        return
+
+    usernames = list(state["connections"].values())
+    random.shuffle(usernames)
 
     state["players"] = {
-        "X": players[0],
-        "O": players[1],
+        "X": usernames[0],
+        "O": usernames[1],
     }
     state["turn"] = random.choice(["X", "O"])
 
@@ -63,8 +67,8 @@ class Gameroom(WebsocketConsumer):
             return
 
         state = GAME_STATE.setdefault(self.room_code, {
-            "players": {},              # {"X": username, "O": username}
             "connections": {},          # channel_name -> username
+            "players": {},              # {"X": username, "O": username}
             "board": [None] * 9,
             "turn": None,
             "winner": None,
@@ -74,12 +78,14 @@ class Gameroom(WebsocketConsumer):
             "winning_cells": [],
         })
 
+        # Only 2 players allowed
         if len(state["connections"]) >= 2:
             self.close()
             return
 
         state["connections"][self.channel_name] = self.username
 
+        # Start game when second player joins
         if len(state["connections"]) == 2:
             reshuffle_players(state)
             state["started"] = True
@@ -113,6 +119,11 @@ class Gameroom(WebsocketConsumer):
 
         state["connections"].pop(self.channel_name, None)
 
+        # Reset game if a player leaves
+        state["players"] = {}
+        state["started"] = False
+        state["turn"] = None
+
         if not state["connections"]:
             GAME_STATE.pop(self.room_code, None)
             Game.objects.filter(room_code=self.room_code).delete()
@@ -130,12 +141,15 @@ class Gameroom(WebsocketConsumer):
             if state["winner"] is None:
                 return
 
-            reshuffle_players(state)
+            if len(state["connections"]) == 2:
+                reshuffle_players(state)
+                state["started"] = True
+            else:
+                state["started"] = False
 
             state.update({
                 "board": [None] * 9,
                 "winner": None,
-                "started": True,
                 "winning_cells": [],
                 "finished_at": None,
             })
@@ -143,16 +157,16 @@ class Gameroom(WebsocketConsumer):
             self.broadcast_state()
             return
 
+        # 🎯 PLAYER MOVE
         index = data.get("move")
         if index is None or not (0 <= index <= 8):
             return
-
         if not state["started"] or state["winner"]:
             return
         if state["board"][index] is not None:
             return
 
-        # 🔍 DETERMINE PLAYER SYMBOL (DYNAMIC)
+        # Resolve symbol dynamically
         player_symbol = None
         for symbol, username in state["players"].items():
             if username == self.username:
