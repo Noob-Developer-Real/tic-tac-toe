@@ -3,6 +3,7 @@ from asgiref.sync import async_to_sync
 import json
 import time
 import re
+import random  
 
 GAME_STATE = {}
 ROOM_TTL = 60
@@ -30,7 +31,7 @@ def check_winner(board):
 class Gameroom(WebsocketConsumer):
 
     def connect(self):
-        from home.models import Game  # ✅ lazy import ONLY here
+        from home.models import Game
 
         self.room_code = self.scope["url_route"]["kwargs"]["room_code"]
         self.room_group = safe_group_name(self.room_code)
@@ -47,10 +48,11 @@ class Gameroom(WebsocketConsumer):
             self.close()
             return
 
+        # 🔹 INITIAL GAME STATE
         state = GAME_STATE.setdefault(self.room_code, {
             "players": {},
             "board": [None] * 9,
-            "turn": "X",
+            "turn": None,              
             "winner": None,
             "started": False,
             "finished_at": None,
@@ -58,13 +60,19 @@ class Gameroom(WebsocketConsumer):
             "winning_cells": [],
         })
 
+        # 🔹 PLAYER ASSIGNMENT
         if "X" not in state["players"]:
             self.symbol = "X"
             state["players"]["X"] = self.username
+
         elif "O" not in state["players"]:
             self.symbol = "O"
             state["players"]["O"] = self.username
+
+            # ✅ GAME STARTS HERE
             state["started"] = True
+            state["turn"] = random.choice(["X", "O"])  # 🎲 RANDOM FIRST TURN
+
         else:
             self.close()
             return
@@ -76,6 +84,7 @@ class Gameroom(WebsocketConsumer):
 
         self.accept()
 
+        # 🔹 SEND PLAYER SYMBOL
         self.send(json.dumps({
             "type": "init",
             "symbol": self.symbol,
@@ -106,29 +115,30 @@ class Gameroom(WebsocketConsumer):
         from home.models import Game
 
         data = json.loads(text_data)
+        state = GAME_STATE.get(self.room_code)
+        if not state:
+            return
 
+        # 🔄 RESET GAME
         if data.get("action") == "reset":
-            state = GAME_STATE.get(self.room_code)
-            if not state or state["winner"] is None:
+            if state["winner"] is None:
                 return
 
             state.update({
                 "board": [None] * 9,
                 "winner": None,
-                "turn": "X",
+                "turn": random.choice(["X", "O"]),  # 🎲 RANDOM AGAIN
                 "started": len(state["players"]) == 2,
                 "winning_cells": [],
                 "finished_at": None,
             })
+
             self.broadcast_state()
             return
 
+        # 🎯 PLAYER MOVE
         index = data.get("move")
         if index is None or not (0 <= index <= 8):
-            return
-
-        state = GAME_STATE.get(self.room_code)
-        if not state:
             return
 
         if not state["started"] or state["winner"]:
